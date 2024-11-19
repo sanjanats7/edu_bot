@@ -16,7 +16,7 @@ if uploaded_files:
             text = extract_text_from_pdf(file)
             documents.append(text)
             st.write(f"File uploaded: {file.name}")
-    
+
     # Create FAISS index
     index = create_faiss_index(documents)
 
