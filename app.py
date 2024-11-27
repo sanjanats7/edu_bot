@@ -7,6 +7,11 @@ import ollama
 import streamlit as st
 import time
 import os
+from PIL import Image
+import pytesseract
+
+# Configure Tesseract path if required
+# pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR Path (if needed)"
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -21,6 +26,40 @@ def pdf_read(pdf_doc):
             text += page.extract_text()
     return text
 
+import tempfile
+from pdf2image import convert_from_path
+from PIL import Image
+import pytesseract
+
+
+def perform_ocr(files):
+    """
+    Perform OCR on uploaded files (images or PDFs).
+    """
+    text = ""
+    for file in files:
+        if file.name.endswith(".pdf"):
+            # Save the PDF to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+                temp_pdf.write(file.read())  # Write the contents of the UploadedFile
+                temp_pdf_path = temp_pdf.name
+
+            # Convert PDF pages to images using pdf2image
+            try:
+                images = convert_from_path(temp_pdf_path, dpi=300)
+                for image in images:
+                    text += pytesseract.image_to_string(image)
+            except Exception as e:
+                st.error(f"Failed to process PDF file: {e}")
+        else:
+            # For image files
+            try:
+                image = Image.open(file)
+                text += pytesseract.image_to_string(image)
+            except Exception as e:
+                st.error(f"Failed to process image file: {e}")
+    return text
+
 
 def get_chunks(text):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -29,16 +68,13 @@ def get_chunks(text):
 
 
 def vector_store(text_chunks):
-
     vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
     vector_store.save_local("faiss_db")
 
 
 def get_conversational_chain(retrieval_chain, user_question):
-    # Run the retrieval chain to get contextually relevant information
     retrieved_context = retrieval_chain.run(user_question)
 
-    # Set up the Ollama Llama 3.1 interface with the retrieved context
     response_stream = ollama.chat(
         model="llama3.1",
         messages=[
@@ -52,38 +88,29 @@ def get_conversational_chain(retrieval_chain, user_question):
         stream=True,
     )
 
-    # Create an empty container to hold the response
     response_container = st.empty()
     response_text = ""
 
-    # Iterate over the response stream, updating the response text incrementally
     for chunk in response_stream:
-        # Append the new chunk of text to the response
         response_text += chunk["message"]["content"]
         response_container.write("Reply: " + response_text)
-
-        # Optional: add a small delay to simulate typing speed
         time.sleep(0.05)
 
-    # Final write in case there’s any delay in receiving chunks
     response_container.write("Reply: " + response_text)
 
 
 def user_input(user_question):
-    # Load FAISS index locally and set up the retriever
     new_db = FAISS.load_local(
         "faiss_db", embeddings, allow_dangerous_deserialization=True
     )
     retriever = new_db.as_retriever()
 
-    # Create a retrieval tool with the locally loaded retriever
     retrieval_chain = create_retriever_tool(
         retriever,
         "pdf_extractor",
         "This tool is to give answer to queries from the pdf",
     )
 
-    # Invoke the conversational chain using the locally configured model
     get_conversational_chain(retrieval_chain, user_question)
 
 
@@ -98,16 +125,23 @@ def main():
 
     with st.sidebar:
         st.title("Menu:")
+        is_handwritten = st.checkbox("Is this a handwritten document?")
         pdf_doc = st.file_uploader(
-            "Upload your PDF Files and Click on the Submit & Process Button",
+            "Upload your PDF/Image Files and Click on the Submit & Process Button",
             accept_multiple_files=True,
         )
         if st.button("Submit & Process"):
             with st.spinner("Processing..."):
-                raw_text = pdf_read(pdf_doc)
+                if is_handwritten:
+                    st.info("Performing OCR on handwritten notes...")
+                    raw_text = perform_ocr(pdf_doc)
+                else:
+                    st.info("Reading text from PDFs...")
+                    raw_text = pdf_read(pdf_doc)
+
                 text_chunks = get_chunks(raw_text)
                 vector_store(text_chunks)
-                st.success("Done")
+                st.success("Processing Completed!")
 
 
 if __name__ == "__main__":
