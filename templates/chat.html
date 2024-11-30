@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="POST">
+    <label>
+        Ask a question:
+        <input type="text" name="user_question" required>
+    </label>
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}

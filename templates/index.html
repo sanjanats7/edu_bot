@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="POST" enctype="multipart/form-data">
+    <label>
+        Upload PDF/Image Files:
+        <input type="file" name="files" multiple>
+    </label>
+    <label>
+        <input type="checkbox" name="is_handwritten">
+        Is this a handwritten document?
+    </label>
+    <button type="submit">Submit & Process</button>
+</form>
+{% endblock %}
