@@ -1,0 +1,8 @@
+streamlit
+faiss-cpu
+# sentence-transformers
+# PyMuPDF
+sudo apt install tesseract-ocr (or windows installer)
+and
+pip install pdf2image pytesseract pillow
+

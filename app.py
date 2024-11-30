@@ -1,61 +1,70 @@
-from flask import Flask, request, render_template, redirect, url_for, flash
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings.spacy_embeddings import SpacyEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.tools.retriever import create_retriever_tool
 import ollama
+import streamlit as st
+import time
 import os
 from PIL import Image
 import pytesseract
-import tempfile
-from pdf2image import convert_from_path
 
-app = Flask(__name__)
-app.secret_key = "secretkey"
-UPLOAD_FOLDER = "uploads"
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# Configure Tesseract path if needed
+# Configure Tesseract path if required
 # pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR Path (if needed)"
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 embeddings = SpacyEmbeddings(model_name="en_core_web_sm")
 
 
-def pdf_read(pdf_path):
+def pdf_read(pdf_doc):
     text = ""
-    pdf_reader = PdfReader(pdf_path)
-    for page in pdf_reader.pages:
-        text += page.extract_text()
+    for pdf in pdf_doc:
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text()
     return text
 
+import tempfile
+from pdf2image import convert_from_path
+from PIL import Image
+import pytesseract
 
-def perform_ocr(file_path, is_pdf):
+
+def perform_ocr(files):
+    """
+    Perform OCR on uploaded files (images or PDFs).
+    """
     text = ""
-    if is_pdf:
-        # Convert PDF pages to images using pdf2image
-        try:
-            images = convert_from_path(file_path, dpi=300)
-            for image in images:
+    for file in files:
+        if file.name.endswith(".pdf"):
+            # Save the PDF to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+                temp_pdf.write(file.read())  # Write the contents of the UploadedFile
+                temp_pdf_path = temp_pdf.name
+
+            # Convert PDF pages to images using pdf2image
+            try:
+                images = convert_from_path(temp_pdf_path, dpi=300)
+                for image in images:
+                    text += pytesseract.image_to_string(image)
+            except Exception as e:
+                st.error(f"Failed to process PDF file: {e}")
+        else:
+            # For image files
+            try:
+                image = Image.open(file)
                 text += pytesseract.image_to_string(image)
-        except Exception as e:
-            raise RuntimeError(f"Failed to process PDF file: {e}")
-    else:
-        # For image files
-        try:
-            image = Image.open(file_path)
-            text += pytesseract.image_to_string(image)
-        except Exception as e:
-            raise RuntimeError(f"Failed to process image file: {e}")
+            except Exception as e:
+                st.error(f"Failed to process image file: {e}")
     return text
 
 
 def get_chunks(text):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    return text_splitter.split_text(text)
+    chunks = text_splitter.split_text(text)
+    return chunks
 
 
 def vector_store(text_chunks):
@@ -79,68 +88,61 @@ def get_conversational_chain(retrieval_chain, user_question):
         stream=True,
     )
 
+    response_container = st.empty()
     response_text = ""
+
     for chunk in response_stream:
         response_text += chunk["message"]["content"]
-    return response_text
+        response_container.write("Reply: " + response_text)
+        time.sleep(0.05)
+
+    response_container.write("Reply: " + response_text)
 
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    if request.method == "POST":
-        is_handwritten = request.form.get("is_handwritten") == "on"
-        uploaded_files = request.files.getlist("files")
+def user_input(user_question):
+    new_db = FAISS.load_local(
+        "faiss_db", embeddings, allow_dangerous_deserialization=True
+    )
+    retriever = new_db.as_retriever()
 
-        if not uploaded_files:
-            flash("No files uploaded!", "danger")
-            return redirect(url_for("index"))
+    retrieval_chain = create_retriever_tool(
+        retriever,
+        "pdf_extractor",
+        "This tool is to give answer to queries from the pdf",
+    )
 
-        raw_text = ""
-        for file in uploaded_files:
-            file_path = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
-            file.save(file_path)
+    get_conversational_chain(retrieval_chain, user_question)
 
-            try:
-                if is_handwritten or file.filename.endswith(".pdf"):
-                    raw_text += perform_ocr(file_path, file.filename.endswith(".pdf"))
+
+def main():
+    st.set_page_config("Chat PDF")
+    st.header("RAG based Chat with PDF")
+
+    user_question = st.text_input("Ask a Question from the PDF Files")
+
+    if user_question:
+        user_input(user_question)
+
+    with st.sidebar:
+        st.title("Menu:")
+        is_handwritten = st.checkbox("Is this a handwritten document?")
+        pdf_doc = st.file_uploader(
+            "Upload your PDF/Image Files and Click on the Submit & Process Button",
+            accept_multiple_files=True,
+        )
+        if st.button("Submit & Process"):
+            with st.spinner("Processing..."):
+                if is_handwritten:
+                    st.info("Performing OCR on handwritten notes...")
+                    raw_text = perform_ocr(pdf_doc)
                 else:
-                    raw_text += pdf_read(file_path)
-            except Exception as e:
-                flash(f"Error processing file {file.filename}: {e}", "danger")
-                return redirect(url_for("index"))
+                    st.info("Reading text from PDFs...")
+                    raw_text = pdf_read(pdf_doc)
 
-        text_chunks = get_chunks(raw_text)
-        vector_store(text_chunks)
-        flash("Processing completed!", "success")
-        return redirect(url_for("chat"))
-
-    return render_template("index.html")
-
-
-@app.route("/chat", methods=["GET", "POST"])
-def chat():
-    if request.method == "POST":
-        user_question = request.form.get("user_question")
-        if not user_question:
-            flash("Please enter a question!", "danger")
-            return redirect(url_for("chat"))
-
-        new_db = FAISS.load_local(
-            "faiss_db", embeddings, allow_dangerous_deserialization=True
-        )
-        retriever = new_db.as_retriever()
-
-        retrieval_chain = create_retriever_tool(
-            retriever,
-            "pdf_extractor",
-            "This tool is to give answer to queries from the pdf",
-        )
-
-        response = get_conversational_chain(retrieval_chain, user_question)
-        return render_template("result.html", question=user_question, response=response)
-
-    return render_template("chat.html")
+                text_chunks = get_chunks(raw_text)
+                vector_store(text_chunks)
+                st.success("Processing Completed!")
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()
