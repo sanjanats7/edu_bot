@@ -1,18 +1,19 @@
+import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings.spacy_embeddings import SpacyEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.tools.retriever import create_retriever_tool
 import ollama
-import streamlit as st
 import time
 import os
 from PIL import Image
 import pytesseract
+import tempfile
+from pdf2image import convert_from_path
 
 # Configure Tesseract path if required
 # pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR Path (if needed)"
-
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 embeddings = SpacyEmbeddings(model_name="en_core_web_sm")
@@ -26,25 +27,15 @@ def pdf_read(pdf_doc):
             text += page.extract_text()
     return text
 
-import tempfile
-from pdf2image import convert_from_path
-from PIL import Image
-import pytesseract
-
 
 def perform_ocr(files):
-    """
-    Perform OCR on uploaded files (images or PDFs).
-    """
     text = ""
     for file in files:
         if file.name.endswith(".pdf"):
-            # Save the PDF to a temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
-                temp_pdf.write(file.read())  # Write the contents of the UploadedFile
+                temp_pdf.write(file.read())
                 temp_pdf_path = temp_pdf.name
 
-            # Convert PDF pages to images using pdf2image
             try:
                 images = convert_from_path(temp_pdf_path, dpi=300)
                 for image in images:
@@ -52,7 +43,6 @@ def perform_ocr(files):
             except Exception as e:
                 st.error(f"Failed to process PDF file: {e}")
         else:
-            # For image files
             try:
                 image = Image.open(file)
                 text += pytesseract.image_to_string(image)
@@ -72,7 +62,7 @@ def vector_store(text_chunks):
     vector_store.save_local("faiss_db")
 
 
-def get_conversational_chain(retrieval_chain, user_question):
+def get_conversational_chain(retrieval_chain, user_question, top_k, top_p, temperature):
     retrieved_context = retrieval_chain.run(user_question)
 
     response_stream = ollama.chat(
@@ -86,6 +76,11 @@ def get_conversational_chain(retrieval_chain, user_question):
             {"role": "user", "content": user_question},
         ],
         stream=True,
+        options={
+            "top_k": top_k,
+            "top_p": top_p,
+            "temperature": temperature,
+        },
     )
 
     response_container = st.empty()
@@ -99,7 +94,7 @@ def get_conversational_chain(retrieval_chain, user_question):
     response_container.write("Reply: " + response_text)
 
 
-def user_input(user_question):
+def user_input(user_question, top_k, top_p, temperature):
     new_db = FAISS.load_local(
         "faiss_db", embeddings, allow_dangerous_deserialization=True
     )
@@ -111,17 +106,12 @@ def user_input(user_question):
         "This tool is to give answer to queries from the pdf",
     )
 
-    get_conversational_chain(retrieval_chain, user_question)
+    get_conversational_chain(retrieval_chain, user_question, top_k, top_p, temperature)
 
 
 def main():
     st.set_page_config("Chat PDF")
     st.header("RAG based Chat with PDF")
-
-    user_question = st.text_input("Ask a Question from the PDF Files")
-
-    if user_question:
-        user_input(user_question)
 
     with st.sidebar:
         st.title("Menu:")
@@ -130,6 +120,11 @@ def main():
             "Upload your PDF/Image Files and Click on the Submit & Process Button",
             accept_multiple_files=True,
         )
+
+        top_k = st.slider("top_k value", min_value=0, max_value=100, value=40)
+        top_p = st.slider("top_p value", min_value=0.0, max_value=1.0, value=0.85)
+        temperature = st.slider("temperature value", min_value=0.0, max_value=1.0, value=0.5)
+
         if st.button("Submit & Process"):
             with st.spinner("Processing..."):
                 if is_handwritten:
@@ -142,6 +137,11 @@ def main():
                 text_chunks = get_chunks(raw_text)
                 vector_store(text_chunks)
                 st.success("Processing Completed!")
+
+    user_question = st.text_input("Ask a Question from the PDF Files")
+
+    if user_question:
+        user_input(user_question, top_k, top_p, temperature)
 
 
 if __name__ == "__main__":
