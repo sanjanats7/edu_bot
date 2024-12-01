@@ -12,7 +12,7 @@ import pytesseract
 import tempfile
 from pdf2image import convert_from_path
 import re
-from database import register_user, login_user, save_query, get_user_history
+from database import register_user, login_user, save_query, get_user_history, clear_all_history
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -133,9 +133,11 @@ def extract_questions(question_bank_files):
     matches = question_pattern.findall(text_from_first_1)
     return [q.strip() for q in matches]
 
+def clear_text_input(key):
+    st.session_state[key] = ""
 
 def main():
-    st.set_page_config("Chat PDF")
+    st.set_page_config("Chat PDF", layout="wide")
     st.header("RAG based Chat with PDF")
 
     creativity = {}
@@ -145,9 +147,6 @@ def main():
     
     menu = ["Login", "Register", "Chat"]
     choice = st.sidebar.selectbox("Menu", menu)
-
-
-
 
     if choice == "Register":
         username = st.text_input("Username")
@@ -169,9 +168,9 @@ def main():
     
     elif choice == "Chat":
         if "username" in st.session_state:
-            st.subheader(f"Welcome, {st.session_state['username']}!")
             
             with st.sidebar:
+                st.subheader(f"Welcome, {st.session_state['username']}!")
                 st.title("Settings:")
                 
                 is_handwritten = st.checkbox("Handwritten notes?")
@@ -202,34 +201,44 @@ def main():
                         st.success("Processing Completed!")
             
             if question_bank:
-                    questions = extract_questions([question_bank])
-                    st.session_state["questions"] = questions
-                    st.success("Questions extracted successfully!")
-
-                    if st.button("Submit & Process"):
-                        with st.spinner("Processing..."):
-                            if is_handwritten:
-                                st.info("Performing OCR on handwritten notes...")
-                                raw_text = perform_ocr(pdf_doc)
-                            else:
-                                st.info("Reading text from PDFs...")
-                                raw_text = pdf_read(pdf_doc)
-
-                            text_chunks = get_chunks(raw_text)
-                            vector_store(text_chunks)
-                            st.success("Processing Completed!")
+                questions = extract_questions([question_bank])
+                st.session_state["questions"] = questions
+                st.success("Questions extracted successfully!")
+                if st.button("Submit & Process"):
+                    with st.spinner("Processing..."):
+                        if is_handwritten:
+                            st.info("Performing OCR on handwritten notes...")
+                            raw_text = perform_ocr(pdf_doc)
+                        else:
+                            st.info("Reading text from PDFs...")
+                            raw_text = pdf_read(pdf_doc)
+                        text_chunks = get_chunks(raw_text)
+                        vector_store(text_chunks)
+                        st.success("Processing Completed!")
             cret = st.sidebar.slider("creativity values", min_value = 0, max_value = 2, value = 1)
             top_k = creativity[cret][0]
             top_p = creativity[cret][1]
             temperature = creativity[cret][2]                       
 
-            # Display chat history
-            st.subheader("Chat History")
+            col1, col2 = st.columns([4, 1])
+            
+            with col1:
+                # Display chat history
+                st.subheader("Chat History")
+            with col2:
+                if st.button("Clear history"):
+                    if "user_input" in st.session_state:
+                        clear_text_input("user_input")
+                    clear_all_history(st.session_state["username"])
+                    st.rerun()
+                
             chat_history = get_user_history(st.session_state["username"])
+                                
             if chat_history:
                 for entry in chat_history:
-                    st.write(f"*Q:* {entry['question']}")
-                    st.write(f"*A:* {entry['answer']}")
+                    c = st.container(border=True)
+                    c.write(f"*Q:* {entry['question']}")
+                    c.write(f"*A:* {entry['answer']}")
             else:
                 st.info("No chat history available.")
                 
@@ -241,7 +250,7 @@ def main():
                     response = user_input(selected_question, 50, 0.5, 0.7)
                     save_query(st.session_state["username"], selected_question, response)
 
-            user_question = st.text_input("Or ask your own question")
+            user_question = st.text_input("Ask your own question", key="user_input")
             if user_question:
                 response = user_input(user_question, 50, 0.5, 0.7)
                 save_query(st.session_state["username"], user_question, response)

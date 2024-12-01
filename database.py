@@ -80,3 +80,15 @@ def get_user_history(username):
         history.append({"question": question, "answer": answer})
     
     return history
+
+def clear_all_history(username):
+    result = users_col.update_many(
+        {"username": username},
+        {"$set": {"queries": []}}
+    )
+
+    # Check if the operation was successful
+    if result.matched_count > 0:
+        print(f"Successfully cleared 'queries' for username: {username}")
+    else:
+        print(f"No document found with username: {username}")
