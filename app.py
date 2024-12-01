@@ -12,6 +12,8 @@ import pytesseract
 import tempfile
 from pdf2image import convert_from_path
 import re
+from database import register_user, login_user, save_query, get_user_history
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -139,58 +141,101 @@ def main():
     creativity[0] = (0, 1, 0)
     creativity[1] = (50, 0.5, 0.5) # default value for creativity
     creativity[2] = (100, 0, 1)
+    
+    menu = ["Login", "Register", "Chat"]
+    choice = st.sidebar.selectbox("Menu", menu)
 
-    with st.sidebar:
-        st.title("Menu:")
-        is_handwritten = st.checkbox("Handwritten notes?")
-        global is_elaborate
-        is_elaborate = st.checkbox("Detailed answer?")
-        pdf_doc = st.file_uploader(
-            "Upload your PDF/Image Files and Click on the Submit & Process Button",
-            accept_multiple_files=True,
-        )
-        question_bank = st.file_uploader(
-            "Upload Question Bank (PDF/Text)", accept_multiple_files=False
-        )
-        if question_bank:
-            st.info("Extracting questions from the question bank...")
-            questions = extract_questions([question_bank])
-            st.session_state["questions"] = questions
-            st.success("Questions Extracted Successfully!")
-        else:
-            st.session_state["questions"] = []
-            st.warning("No question bank uploaded. You can still ask custom questions.")
-        if st.button("Submit & Process"):
-            with st.spinner("Processing..."):
-                if is_handwritten:
-                    st.info("Performing OCR on handwritten notes...")
-                    raw_text = perform_ocr(pdf_doc)
+
+
+
+    if choice == "Register":
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Register"):
+            result = register_user(username, password)
+            st.success(result)
+
+    elif choice == "Login":
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if login_user(username, password):
+                st.session_state["username"] = username
+                st.success(f"Welcome {username}!")
+            else:
+                st.error("Invalid credentials.")
+
+    
+    elif choice == "Chat":
+        if "username" in st.session_state:
+            st.write(f"Logged in as {st.session_state['username']}")
+            
+            with st.sidebar:
+                st.title("Menu:")
+                is_handwritten = st.checkbox("Handwritten notes?")
+                global is_elaborate
+                is_elaborate = st.checkbox("Detailed answer?")
+                pdf_doc = st.file_uploader(
+                    "Upload your PDF/Image Files and Click on the Submit & Process Button",
+                    accept_multiple_files=True,
+                )
+                question_bank = st.file_uploader(
+                    "Upload Question Bank (PDF/Text)", accept_multiple_files=False
+                )
+                if question_bank:
+                    st.info("Extracting questions from the question bank...")
+                    questions = extract_questions([question_bank])
+                    st.session_state["questions"] = questions
+                    st.success("Questions Extracted Successfully!")
                 else:
-                    st.info("Reading text from PDFs...")
-                    raw_text = pdf_read(pdf_doc)
+                    st.session_state["questions"] = []
+                    st.warning("No question bank uploaded. You can still ask custom questions.")
+                if st.button("Submit & Process"):
+                    with st.spinner("Processing..."):
+                        if is_handwritten:
+                            st.info("Performing OCR on handwritten notes...")
+                            raw_text = perform_ocr(pdf_doc)
+                        else:
+                            st.info("Reading text from PDFs...")
+                            raw_text = pdf_read(pdf_doc)
 
-                text_chunks = get_chunks(raw_text)
-                vector_store(text_chunks)
-                st.success("Processing Completed!")
+                        text_chunks = get_chunks(raw_text)
+                        vector_store(text_chunks)
+                        st.success("Processing Completed!")
 
-        cret = st.slider("creativity values", min_value = 0, max_value = 2, value = 1)
+                cret = st.slider("creativity values", min_value = 0, max_value = 2, value = 1)
 
-    top_k = creativity[cret][0]
-    top_p = creativity[cret][1]
-    temperature = creativity[cret][2]
+            top_k = creativity[cret][0]
+            top_p = creativity[cret][1]
+            temperature = creativity[cret][2]
 
-    questions = st.session_state.get("questions", [])
-    st.subheader("Ask Questions:")
-    if question_bank:
-        selected_question = st.selectbox(
-            "Select a question to get an answer:", [""] + questions
-        )
-        if selected_question:
-            user_input(selected_question, top_k, top_p, temperature)
-    #  else:
-    user_question = st.text_input("Ask a Question from the PDF Files")
-    if user_question:
-        user_input(user_question, top_k, top_p, temperature)
+            questions = st.session_state.get("questions", [])
+            st.subheader("Ask Questions:")
+            
+            
+            
+            
+            # if any error its probably here
+            # 
+            
+            if question_bank:
+                selected_question = st.selectbox(
+                    "Select a question to get an answer:", [""] + questions
+                )
+                if selected_question:
+                    response = user_input(selected_question, top_k, top_p, temperature)
+                    save_query(st.session_state["username"], selected_question, response)
+                    
+            user_question = st.text_input("Ask a Question from the PDF Files")
+            
+            if user_question:
+                response = user_input(user_question, top_k, top_p, temperature)
+                save_query(st.session_state["username"], user_question, response)
+                
+            # todo 
+            # Display chat history
+    else:
+        st.error("Please log in to use the chat application.")             
 
 
 if __name__ == "__main__":
