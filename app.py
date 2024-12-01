@@ -12,8 +12,6 @@ import pytesseract
 import tempfile
 from pdf2image import convert_from_path
 
-# Configure Tesseract path if required
-# pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR Path (if needed)"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 embeddings = SpacyEmbeddings(model_name="en_core_web_sm")
@@ -121,6 +119,13 @@ def user_input(user_question, top_k, top_p, temperature):
     get_conversational_chain(retrieval_chain, user_question, top_k, top_p, temperature)
 
 
+# from TS
+def extract_questions(question_bank_files):
+    text = pdf_read(question_bank_files)
+    questions = text.split("\n")
+    return [q.strip() for q in questions if q.strip()]
+
+
 def main():
     st.set_page_config("Chat PDF")
     st.header("RAG based Chat with PDF")
@@ -134,7 +139,17 @@ def main():
             "Upload your PDF/Image Files and Click on the Submit & Process Button",
             accept_multiple_files=True,
         )
-
+        question_bank = st.file_uploader(
+            "Upload Question Bank (PDF/Text)", accept_multiple_files=False
+        )
+        if question_bank:
+            st.info("Extracting questions from the question bank...")
+            questions = extract_questions([question_bank])
+            st.session_state["questions"] = questions
+            st.success("Questions Extracted Successfully!")
+        else:
+            st.session_state["questions"] = []
+            st.warning("No question bank uploaded. You can still ask custom questions.")
         if st.button("Submit & Process"):
             with st.spinner("Processing..."):
                 if is_handwritten:
@@ -154,10 +169,17 @@ def main():
             "temperature value", min_value=0.0, max_value=1.0, value=0.5
         )
 
-    user_question = st.text_input("Ask a Question from the PDF Files")
-
-    if user_question:
-        user_input(user_question, top_k, top_p, temperature)
+    questions = st.session_state.get("questions", [])
+    st.subheader("Ask Questions:")
+    selected_question = st.selectbox(
+        "Select a question to get an answer:", [""] + questions
+    )
+    if selected_question:
+        user_input(selected_question, top_k, top_p, temperature)
+    else:
+        user_question = st.text_input("Ask a Question from the PDF Files")
+        if user_question:
+            user_input(user_question, top_k, top_p, temperature)
 
 
 if __name__ == "__main__":
