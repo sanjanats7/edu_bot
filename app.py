@@ -18,6 +18,8 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 embeddings = SpacyEmbeddings(model_name="en_core_web_sm")
 
+is_elaborate = False
+
 
 def pdf_read(pdf_doc):
     text = ""
@@ -65,12 +67,21 @@ def vector_store(text_chunks):
 def get_conversational_chain(retrieval_chain, user_question, top_k, top_p, temperature):
     retrieved_context = retrieval_chain.run(user_question)
 
+    pre_prompt = (
+        "You are a helpful assistant providing answers from a document context. "
+    )
+    global is_elaborate
+    if is_elaborate:
+        pre_prompt += "Give a detailed answer in points."
+    else:
+        pre_prompt += "Give a concise answer in points"
+
     response_stream = ollama.chat(
         model="llama3.1",
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful assistant providing answers from a document context.",
+                "content": pre_prompt,
             },
             {"role": "user", "content": f"Context: {retrieved_context}"},
             {"role": "user", "content": user_question},
@@ -80,6 +91,7 @@ def get_conversational_chain(retrieval_chain, user_question, top_k, top_p, tempe
             "top_k": top_k,
             "top_p": top_p,
             "temperature": temperature,
+            "num_predict": -1,
         },
     )
 
@@ -115,15 +127,13 @@ def main():
 
     with st.sidebar:
         st.title("Menu:")
-        is_handwritten = st.checkbox("Is this a handwritten document?")
+        is_handwritten = st.checkbox("Handwritten notes?")
+        global is_elaborate
+        is_elaborate = st.checkbox("Detailed answer?")
         pdf_doc = st.file_uploader(
             "Upload your PDF/Image Files and Click on the Submit & Process Button",
             accept_multiple_files=True,
         )
-
-        top_k = st.slider("top_k value", min_value=0, max_value=100, value=40)
-        top_p = st.slider("top_p value", min_value=0.0, max_value=1.0, value=0.85)
-        temperature = st.slider("temperature value", min_value=0.0, max_value=1.0, value=0.5)
 
         if st.button("Submit & Process"):
             with st.spinner("Processing..."):
@@ -137,6 +147,12 @@ def main():
                 text_chunks = get_chunks(raw_text)
                 vector_store(text_chunks)
                 st.success("Processing Completed!")
+
+        top_k = st.slider("top_k value", min_value=0, max_value=100, value=40)
+        top_p = st.slider("top_p value", min_value=0.0, max_value=1.0, value=0.85)
+        temperature = st.slider(
+            "temperature value", min_value=0.0, max_value=1.0, value=0.5
+        )
 
     user_question = st.text_input("Ask a Question from the PDF Files")
 
