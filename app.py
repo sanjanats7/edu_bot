@@ -130,6 +130,11 @@ def main():
     st.set_page_config("Chat PDF")
     st.header("RAG based Chat with PDF")
 
+    creativity = {}
+    creativity[0] = (0, 1, 0)
+    creativity[1] = (50, 0.5, 0.5) # default value for creativity
+    creativity[2] = (100, 0, 1)
+
     with st.sidebar:
         st.title("Menu:")
         is_handwritten = st.checkbox("Handwritten notes?")
@@ -163,11 +168,16 @@ def main():
                 vector_store(text_chunks)
                 st.success("Processing Completed!")
 
-        top_k = st.slider("top_k value", min_value=0, max_value=100, value=40)
-        top_p = st.slider("top_p value", min_value=0.0, max_value=1.0, value=0.85)
-        temperature = st.slider(
-            "temperature value", min_value=0.0, max_value=1.0, value=0.5
-        )
+        cret = st.slider("creativity values", min_value = 0, max_value = 2, value = 1)
+        # top_k = st.slider("top_k value", min_value=0, max_value=100, value=40)
+        # top_p = st.slider("top_p value", min_value=0.0, max_value=1.0, value=0.85)
+        # temperature = st.slider(
+        #     "temperature value", min_value=0.0, max_value=1.0, value=0.5
+        # )
+
+    top_k = creativity[cret][0]
+    top_p = creativity[cret][1]
+    temperature = creativity[cret][2]
 
     questions = st.session_state.get("questions", [])
     st.subheader("Ask Questions:")
