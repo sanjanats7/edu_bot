@@ -7,7 +7,6 @@ client = MongoClient(
 )  # Replace with your MongoDB URI
 db = client["edu_bot"]  # Database name
 users_col = db["users"]  # Collection for user data
-queries_col = db["queries"]  # Collection for storing queries and responses
 
 
 # User registration
@@ -16,7 +15,12 @@ def register_user(username, password):
         return "User already exists"
     hashed_pw = generate_password_hash(password)
     users_col.insert_one(
-        {"username": username, "password": hashed_pw, "documents": [], "queries": []}
+        {
+            "username": username,
+            "password": hashed_pw,
+            "documents": [],  # List to store uploaded document names
+            "queries": [],  # List to store query-response pairs
+        }
     )
     return "User registered successfully"
 
@@ -31,13 +35,47 @@ def login_user(username, password):
 
 # Save query and response
 def save_query(username, query, response):
+    if not response:
+        raise ValueError("Cannot save an empty response.")
     users_col.update_one(
         {"username": username},
-        {"$push": {"queries": {"query": query, "response": response}}},
+        {
+            "$push": {
+                "queries": {
+                    "question": query,
+                    "answer": response,
+                }
+            }
+        },
+    )
+
+
+# Save uploaded document
+def save_uploaded_document(username, document_name):
+    users_col.update_one(
+        {"username": username},
+        {"$push": {"documents": document_name}}
     )
 
 
 # Fetch user chat history
 def get_user_history(username):
+    # Fetch user from the database
     user = users_col.find_one({"username": username})
-    return user.get("queries", []) if user else []
+    
+    # Return an empty list if no user is found
+    if not user:
+        return []
+
+    # Ensure that each query has 'question' and 'answer' keys
+    queries = user.get("queries", [])
+    
+    # Normalize the queries to ensure each query has the correct format
+    history = []
+    for query in queries:
+        # Default to empty strings if keys are missing
+        question = query.get("question", "No question found")
+        answer = query.get("answer", "No answer found")
+        history.append({"question": question, "answer": answer})
+    
+    return history
