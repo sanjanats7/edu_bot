@@ -11,6 +11,7 @@ from PIL import Image
 import pytesseract
 import tempfile
 from pdf2image import convert_from_path
+import re
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -119,11 +120,15 @@ def user_input(user_question, top_k, top_p, temperature):
     get_conversational_chain(retrieval_chain, user_question, top_k, top_p, temperature)
 
 
-# from TS
 def extract_questions(question_bank_files):
-    text = pdf_read(question_bank_files)
-    questions = text.split("\n")
-    return [q.strip() for q in questions if q.strip()]
+    question_bank_text = pdf_read(question_bank_files)
+    start_match = re.search(r"\b1\b", question_bank_text)
+    if not start_match:
+        return [] 
+    text_from_first_1 = question_bank_text[start_match.start() :]
+    question_pattern = re.compile(r"(\d+\s.*?)(?=\n\d+\s|\n1 \s|$)", re.DOTALL)
+    matches = question_pattern.findall(text_from_first_1)
+    return [q.strip() for q in matches]
 
 
 def main():
@@ -169,11 +174,6 @@ def main():
                 st.success("Processing Completed!")
 
         cret = st.slider("creativity values", min_value = 0, max_value = 2, value = 1)
-        # top_k = st.slider("top_k value", min_value=0, max_value=100, value=40)
-        # top_p = st.slider("top_p value", min_value=0.0, max_value=1.0, value=0.85)
-        # temperature = st.slider(
-        #     "temperature value", min_value=0.0, max_value=1.0, value=0.5
-        # )
 
     top_k = creativity[cret][0]
     top_p = creativity[cret][1]
@@ -181,15 +181,16 @@ def main():
 
     questions = st.session_state.get("questions", [])
     st.subheader("Ask Questions:")
-    selected_question = st.selectbox(
-        "Select a question to get an answer:", [""] + questions
-    )
-    if selected_question:
-        user_input(selected_question, top_k, top_p, temperature)
-    else:
-        user_question = st.text_input("Ask a Question from the PDF Files")
-        if user_question:
-            user_input(user_question, top_k, top_p, temperature)
+    if question_bank:
+        selected_question = st.selectbox(
+            "Select a question to get an answer:", [""] + questions
+        )
+        if selected_question:
+            user_input(selected_question, top_k, top_p, temperature)
+    #  else:
+    user_question = st.text_input("Ask a Question from the PDF Files")
+    if user_question:
+        user_input(user_question, top_k, top_p, temperature)
 
 
 if __name__ == "__main__":
