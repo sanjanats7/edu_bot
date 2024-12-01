@@ -37,6 +37,7 @@ def login_user(username, password):
 def save_query(username, query, response):
     if not response:
         raise ValueError("Cannot save an empty response.")
+        return
     users_col.update_one(
         {"username": username},
         {
