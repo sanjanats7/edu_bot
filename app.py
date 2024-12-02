@@ -1,3 +1,4 @@
+
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -13,6 +14,11 @@ import tempfile
 from pdf2image import convert_from_path
 import re
 from database import register_user, login_user, save_query, get_user_history, clear_all_history
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import utils
+from textwrap import wrap
+import re
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -135,6 +141,60 @@ def extract_questions(question_bank_files):
 
 def clear_text_input(key):
     st.session_state[key] = ""
+    
+
+def save_as_pdf(chat_history, filename="chat_history.pdf"):
+    c = canvas.Canvas(filename, pagesize=letter)
+    width, height = letter
+    margin = 50
+    y_position = height - margin
+
+    for entry in chat_history:
+        question = f"Q: {entry['question']}"
+        answer = f"A: {entry['answer']}"
+
+        # Draw the question in bold
+        y_position = draw_wrapped_text(c, question, margin, y_position, width - 2 * margin, is_question=True)
+        y_position -= 10  # Space between question and answer
+
+        # Draw the answer without bold markers
+        y_position = draw_wrapped_text(c, answer, margin, y_position, width - 2 * margin, parse_formatting=True)
+        y_position -= 20  # Space between entries
+
+        # Add a new page if the content overflows
+        if y_position < margin:
+            c.showPage()
+            y_position = height - margin
+
+    c.save()
+    return filename
+
+
+def draw_wrapped_text(c, text, x, y, max_width, is_question=False, parse_formatting=False):
+    # Set font for questions or normal text
+    font = "Helvetica-Bold" if is_question else "Helvetica"
+    c.setFont(font, 12)
+
+    if parse_formatting:
+        # Ensure bullet points are on new lines
+        text = text.replace("• ", "\n• ")
+
+        # Strip bold markers (**) for all non-questions and apply formatting as required
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Removes ** markers but keeps text
+        lines = re.split(r'(\•\s*.+?:)', text)  # Keeps bullet formatting
+    else:
+        lines = [text]
+
+    for line in lines:
+        # Wrap text to fit within the specified width
+        wrapped_lines = wrap(line, width=int(max_width / 7))  # Adjust wrap factor for font size
+        for wrapped_line in wrapped_lines:
+            c.drawString(x, y, wrapped_line.strip())
+            y -= 14  # Adjust line spacing
+
+    return y
+
+
 
 def main():
     st.set_page_config("Chat PDF", layout="wide")
@@ -204,17 +264,7 @@ def main():
                 questions = extract_questions([question_bank])
                 st.session_state["questions"] = questions
                 st.success("Questions extracted successfully!")
-                if st.button("Submit & Process"):
-                    with st.spinner("Processing..."):
-                        if is_handwritten:
-                            st.info("Performing OCR on handwritten notes...")
-                            raw_text = perform_ocr(pdf_doc)
-                        else:
-                            st.info("Reading text from PDFs...")
-                            raw_text = pdf_read(pdf_doc)
-                        text_chunks = get_chunks(raw_text)
-                        vector_store(text_chunks)
-                        st.success("Processing Completed!")
+                
             cret = st.sidebar.slider("creativity values", min_value = 0, max_value = 2, value = 1)
             top_k = creativity[cret][0]
             top_p = creativity[cret][1]
@@ -230,6 +280,10 @@ def main():
                     if "user_input" in st.session_state:
                         clear_text_input("user_input")
                     clear_all_history(st.session_state["username"])
+                    
+                    if "qb_selectbox" in st.session_state:
+                        clear_text_input("qb_selectbox")
+                        
                     st.rerun()
                 
             chat_history = get_user_history(st.session_state["username"])
@@ -237,15 +291,27 @@ def main():
             if chat_history:
                 for entry in chat_history:
                     c = st.container(border=True)
-                    c.write(f"*Q:* {entry['question']}")
-                    c.write(f"*A:* {entry['answer']}")
+                    c.write(f"Q: {entry['question']}")
+                    c.write(f"A: {entry['answer']}")
             else:
                 st.info("No chat history available.")
+                
+            if chat_history:
+                if st.button("Save Chat as PDF"):
+                    filename = save_as_pdf(chat_history)
+                    with open(filename, "rb") as file:
+                        st.download_button(
+                            label="Download PDF",
+                            data=file,
+                            file_name="chat_history.pdf",
+                            mime="application/pdf"
+                        )
+
                 
             st.subheader("Ask Questions")
             questions = st.session_state.get("questions", [])
             if questions:
-                selected_question = st.selectbox("Select a question:", [""] + questions)
+                selected_question = st.selectbox("Select a question:", [""] + questions, key="qb_selectbox")
                 if selected_question:
                     response = user_input(selected_question, 50, 0.5, 0.7)
                     save_query(st.session_state["username"], selected_question, response)
@@ -254,8 +320,8 @@ def main():
             if user_question:
                 response = user_input(user_question, 50, 0.5, 0.7)
                 save_query(st.session_state["username"], user_question, response)
-                st.write(f"*Q:* {user_question}")
-                st.write(f"*A:* {response}")
+                # st.write(f"Q: {user_question}")
+                # st.write(f"A: {response}")
             
     else:
         st.error("Please log in to use the chat application.")             
