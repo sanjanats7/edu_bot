@@ -1,3 +1,4 @@
+
 from pymongo import MongoClient
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -64,7 +65,6 @@ def get_user_history(username):
     # Fetch user from the database
     user = users_col.find_one({"username": username})
     
-    # Return an empty list if no user is found
     if not user:
         return []
 
@@ -78,7 +78,7 @@ def get_user_history(username):
         question = query.get("question", "No question found")
         answer = query.get("answer", "No answer found")
         history.append({"question": question, "answer": answer})
-    
+        
     return history
 
 def clear_all_history(username):
