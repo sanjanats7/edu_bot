@@ -1,8 +1,13 @@
-streamlit
-faiss-cpu
-# sentence-transformers
-# PyMuPDF
-sudo apt install tesseract-ocr (or windows installer)
-and
-pip install pdf2image pytesseract pillow
-
+pymongo==4.11
+Werkzeug==3.1.3
+streamlit==1.42.0
+PyPDF2==3.0.1
+langchain==0.3.18
+langchain-community==0.3.17
+ollama==0.4.7
+pytesseract==0.3.13
+pdf2image==1.17.0
+reportlab==4.3.0
+spacy==3.8.4
+faiss-cpu==1.10.0
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
